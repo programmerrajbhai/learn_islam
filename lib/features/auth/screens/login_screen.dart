@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 
 import '../../../core/widgets/app_background.dart';
 import '../../home/screens/home_screen.dart';
+import '../../legal/screens/privacy_policy_screen.dart';
+import '../../legal/screens/terms_screen.dart';
 import '../services/auth_service.dart';
 import 'forgot_password_screen.dart';
 import 'register_screen.dart';
@@ -21,6 +23,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
   bool _busy = false;
   bool _showPassword = false;
+  bool _agreedToTerms = false; // পলিসি চেকবক্স স্টেট
 
   @override
   void dispose() {
@@ -49,7 +52,7 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> _login() async {
-    if (_busy || !_formKey.currentState!.validate()) return;
+    if (_busy || !_formKey.currentState!.validate() || !_agreedToTerms) return;
 
     setState(() => _busy = true);
 
@@ -68,7 +71,7 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> _googleLogin() async {
-    if (_busy) return;
+    if (_busy || !_agreedToTerms) return; // গুগল লগইনেও চেকবক্স লাগবে
 
     setState(() => _busy = true);
 
@@ -103,8 +106,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     children: [
                       CircleAvatar(
                         radius: 34,
-                        backgroundColor:
-                        colors.primary.withValues(alpha: 0.12),
+                        backgroundColor: colors.primary.withValues(alpha: 0.12),
                         child: Icon(
                           Icons.menu_book_rounded,
                           size: 34,
@@ -152,11 +154,9 @@ class _LoginScreenState extends State<LoginScreen> {
                         obscureText: !_showPassword,
                         textInputAction: TextInputAction.done,
                         autofillHints: const [AutofillHints.password],
-                        onFieldSubmitted: (_) => _login(),
                         decoration: InputDecoration(
                           labelText: 'Password',
-                          prefixIcon:
-                          const Icon(Icons.lock_outline_rounded),
+                          prefixIcon: const Icon(Icons.lock_outline_rounded),
                           border: const OutlineInputBorder(),
                           suffixIcon: IconButton(
                             onPressed: () => setState(
@@ -190,18 +190,65 @@ class _LoginScreenState extends State<LoginScreen> {
                           child: const Text('Password ভুলে গেছেন?'),
                         ),
                       ),
-                      const SizedBox(height: 12),
+                      const SizedBox(height: 8),
+
+                      // Terms and Privacy Checkbox
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          SizedBox(
+                            height: 24,
+                            width: 24,
+                            child: Checkbox(
+                              value: _agreedToTerms,
+                              activeColor: const Color(0xFF145444),
+                              onChanged: (value) {
+                                setState(() {
+                                  _agreedToTerms = value ?? false;
+                                });
+                              },
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Wrap(
+                              children: [
+                                const Text('আমি অ্যাপের ', style: TextStyle(fontSize: 13)),
+                                InkWell(
+                                  onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const TermsScreen())),
+                                  child: const Text(
+                                    'Terms & Conditions',
+                                    style: TextStyle(fontSize: 13, color: Color(0xFF145444), fontWeight: FontWeight.bold),
+                                  ),
+                                ),
+                                const Text(' এবং ', style: TextStyle(fontSize: 13)),
+                                InkWell(
+                                  onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const PrivacyPolicyScreen())),
+                                  child: const Text(
+                                    'Privacy Policy',
+                                    style: TextStyle(fontSize: 13, color: Color(0xFF145444), fontWeight: FontWeight.bold),
+                                  ),
+                                ),
+                                const Text(' মেনে নিচ্ছি।', style: TextStyle(fontSize: 13)),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 24),
+
+                      // Login Button
                       FilledButton(
-                        onPressed: _busy ? null : _login,
+                        onPressed: (_busy || !_agreedToTerms) ? null : _login,
                         child: Padding(
-                          padding:
-                          const EdgeInsets.symmetric(vertical: 14),
+                          padding: const EdgeInsets.symmetric(vertical: 14),
                           child: _busy
                               ? const SizedBox(
                             width: 20,
                             height: 20,
                             child: CircularProgressIndicator(
                               strokeWidth: 2,
+                              color: Colors.white,
                             ),
                           )
                               : const Text('Login'),
@@ -210,8 +257,10 @@ class _LoginScreenState extends State<LoginScreen> {
                       const SizedBox(height: 16),
                       const Center(child: Text('অথবা')),
                       const SizedBox(height: 16),
+
+                      // Google Sign-In Button
                       OutlinedButton.icon(
-                        onPressed: _busy ? null : _googleLogin,
+                        onPressed: (_busy || !_agreedToTerms) ? null : _googleLogin,
                         icon: const Icon(Icons.account_circle_outlined),
                         label: const Text('Google দিয়ে চালিয়ে যান'),
                         style: OutlinedButton.styleFrom(
@@ -224,13 +273,10 @@ class _LoginScreenState extends State<LoginScreen> {
                             ? null
                             : () => Navigator.of(context).push(
                           MaterialPageRoute<void>(
-                            builder: (_) =>
-                            const RegisterScreen(),
+                            builder: (_) => const RegisterScreen(),
                           ),
                         ),
-                        child: const Text(
-                          'Account নেই? Register করুন',
-                        ),
+                        child: const Text('Account নেই? Register করুন'),
                       ),
                       const SizedBox(height: 8),
                       TextButton(
@@ -238,13 +284,10 @@ class _LoginScreenState extends State<LoginScreen> {
                             ? null
                             : () => Navigator.of(context).push(
                           MaterialPageRoute<void>(
-                            builder: (_) =>
-                            const VerifyEmailScreen(),
+                            builder: (_) => const VerifyEmailScreen(),
                           ),
                         ),
-                        child: const Text(
-                          'Verification email আবার পাঠাতে চান?',
-                        ),
+                        child: const Text('Verification email আবার পাঠাতে চান?'),
                       ),
                     ],
                   ),

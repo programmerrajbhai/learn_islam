@@ -2,8 +2,9 @@ import 'package:flutter/material.dart';
 
 import '../../../core/widgets/app_background.dart';
 import '../../home/screens/home_screen.dart';
+import '../../legal/screens/privacy_policy_screen.dart';
+import '../../legal/screens/terms_screen.dart';
 import '../services/auth_service.dart';
-import 'verify_email_screen.dart';
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -21,6 +22,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
   bool _busy = false;
   bool _showPassword = false;
+  bool _agreedToTerms = false; // পলিসিতে রাজি হওয়ার চেকবক্স স্টেট
 
   @override
   void dispose() {
@@ -31,10 +33,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
     super.dispose();
   }
 
-
-
   Future<void> _register() async {
-    if (_busy || !_formKey.currentState!.validate()) return;
+    if (_busy || !_formKey.currentState!.validate() || !_agreedToTerms) return;
 
     setState(() => _busy = true);
 
@@ -69,8 +69,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
       if (mounted) setState(() => _busy = false);
     }
   }
-
-
 
   @override
   Widget build(BuildContext context) {
@@ -110,8 +108,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         textInputAction: TextInputAction.next,
                         decoration: const InputDecoration(
                           labelText: 'আপনার নাম',
-                          prefixIcon:
-                          Icon(Icons.person_outline_rounded),
+                          prefixIcon: Icon(Icons.person_outline_rounded),
                           border: OutlineInputBorder(),
                         ),
                         validator: (value) {
@@ -129,8 +126,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         autofillHints: const [AutofillHints.email],
                         decoration: const InputDecoration(
                           labelText: 'Email',
-                          prefixIcon:
-                          Icon(Icons.mail_outline_rounded),
+                          prefixIcon: Icon(Icons.mail_outline_rounded),
                           border: OutlineInputBorder(),
                         ),
                         validator: (value) {
@@ -147,13 +143,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         controller: _passwordController,
                         obscureText: !_showPassword,
                         textInputAction: TextInputAction.next,
-                        autofillHints: const [
-                          AutofillHints.newPassword,
-                        ],
+                        autofillHints: const [AutofillHints.newPassword],
                         decoration: InputDecoration(
                           labelText: 'Password',
-                          prefixIcon:
-                          const Icon(Icons.lock_outline_rounded),
+                          prefixIcon: const Icon(Icons.lock_outline_rounded),
                           border: const OutlineInputBorder(),
                           suffixIcon: IconButton(
                             onPressed: () => setState(
@@ -178,11 +171,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         controller: _confirmController,
                         obscureText: !_showPassword,
                         textInputAction: TextInputAction.done,
-                        onFieldSubmitted: (_) => _register(),
                         decoration: const InputDecoration(
                           labelText: 'Confirm password',
-                          prefixIcon:
-                          Icon(Icons.lock_reset_rounded),
+                          prefixIcon: Icon(Icons.lock_reset_rounded),
                           border: OutlineInputBorder(),
                         ),
                         validator: (value) {
@@ -192,18 +183,65 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           return null;
                         },
                       ),
+                      const SizedBox(height: 20),
+
+                      // Terms and Privacy Checkbox (Google Play Policy)
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          SizedBox(
+                            height: 24,
+                            width: 24,
+                            child: Checkbox(
+                              value: _agreedToTerms,
+                              activeColor: const Color(0xFF145444),
+                              onChanged: (value) {
+                                setState(() {
+                                  _agreedToTerms = value ?? false;
+                                });
+                              },
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Wrap(
+                              children: [
+                                const Text('আমি অ্যাপের ', style: TextStyle(fontSize: 13)),
+                                InkWell(
+                                  onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const TermsScreen())),
+                                  child: const Text(
+                                    'Terms & Conditions',
+                                    style: TextStyle(fontSize: 13, color: Color(0xFF145444), fontWeight: FontWeight.bold),
+                                  ),
+                                ),
+                                const Text(' এবং ', style: TextStyle(fontSize: 13)),
+                                InkWell(
+                                  onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const PrivacyPolicyScreen())),
+                                  child: const Text(
+                                    'Privacy Policy',
+                                    style: TextStyle(fontSize: 13, color: Color(0xFF145444), fontWeight: FontWeight.bold),
+                                  ),
+                                ),
+                                const Text(' মেনে নিচ্ছি।', style: TextStyle(fontSize: 13)),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
                       const SizedBox(height: 24),
+
+                      // _agreedToTerms false থাকলে বাটন disabled থাকবে
                       FilledButton(
-                        onPressed: _busy ? null : _register,
+                        onPressed: (_busy || !_agreedToTerms) ? null : _register,
                         child: Padding(
-                          padding:
-                          const EdgeInsets.symmetric(vertical: 14),
+                          padding: const EdgeInsets.symmetric(vertical: 14),
                           child: _busy
                               ? const SizedBox(
                             width: 20,
                             height: 20,
                             child: CircularProgressIndicator(
                               strokeWidth: 2,
+                              color: Colors.white,
                             ),
                           )
                               : const Text('Account তৈরি করুন'),
