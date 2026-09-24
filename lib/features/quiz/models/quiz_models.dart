@@ -21,10 +21,10 @@ class QuizTopic {
       quizzes: (json['quizzes'] as List<dynamic>)
           .map(
             (item) => Quiz.fromJson(
-              Map<String, dynamic>.from(item as Map),
-              topicId: id,
-            ),
-          )
+          Map<String, dynamic>.from(item as Map),
+          topicId: id,
+        ),
+      )
           .toList(),
     );
   }
@@ -37,6 +37,9 @@ class Quiz {
     required this.title,
     required this.description,
     required this.questions,
+    required this.isPremium,
+    required this.coinCost,
+    required this.questionCount,
   });
 
   final String id;
@@ -44,19 +47,33 @@ class Quiz {
   final String title;
   final String description;
   final List<QuizQuestion> questions;
+  final bool isPremium;
+  final int coinCost;
+  final int questionCount;
 
-  factory Quiz.fromJson(Map<String, dynamic> json, {required String topicId}) {
+  factory Quiz.fromJson(
+      Map<String, dynamic> json, {
+        required String topicId,
+      }) {
+    final isPremium = json['isPremium'] == true;
+    final questions = (json['questions'] as List<dynamic>? ?? [])
+        .map(
+          (item) => QuizQuestion.fromJson(
+        Map<String, dynamic>.from(item as Map),
+      ),
+    )
+        .toList();
+
     return Quiz(
       id: json['id'] as String,
       topicId: topicId,
       title: json['title'] as String,
       description: json['description'] as String,
-      questions: (json['questions'] as List<dynamic>)
-          .map(
-            (item) =>
-                QuizQuestion.fromJson(Map<String, dynamic>.from(item as Map)),
-          )
-          .toList(),
+      questions: questions,
+      isPremium: isPremium,
+      coinCost: isPremium ? (json['coinCost'] as int) : 0,
+      questionCount:
+      (json['questionCount'] as int?) ?? questions.length,
     );
   }
 }

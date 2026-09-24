@@ -1,0 +1,34 @@
+{
+  "topics": [
+    {
+      "id": "quran_basics",
+      "title": "কুরআনের মৌলিক পরিচয়",
+      "description": "কুরআনের সহজ আয়াত থেকে শেখা",
+      "quizzes": [
+        {
+          "id": "quran_premium_01",
+          "title": "কুরআন থেকে আরও শিখি",
+          "description": "আয়াতভিত্তিক বিস্তৃত অনুশীলন",
+          "isPremium": true,
+          "coinCost": 20,
+          "questionCount": 10
+        }
+      ]
+    },
+    {
+      "id": "ibadah_basics",
+      "title": "ইবাদতের মৌলিক পরিচয়",
+      "description": "সালাত ও সিয়াম নিয়ে সহজ প্রশ্ন",
+      "quizzes": [
+        {
+          "id": "ibadah_premium_01",
+          "title": "ইবাদত: পরবর্তী ধাপ",
+          "description": "ইবাদত বিষয়ে আরও অনুশীলন",
+          "isPremium": true,
+          "coinCost": 20,
+          "questionCount": 10
+        }
+      ]
+    }
+  ]
+}

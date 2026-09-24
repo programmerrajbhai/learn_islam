@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class QuizAttempt {
@@ -39,7 +40,14 @@ class QuizAttempt {
 class QuizProgressService {
   final SharedPreferencesAsync _prefs = SharedPreferencesAsync();
 
-  static const _historyKey = 'free_quiz_attempts_v1';
+
+  String get _historyKey {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) {
+      throw StateError('Progress ব্যবহার করতে login প্রয়োজন।');
+    }
+    return 'free_quiz_attempts_v2_$uid';
+  }
 
   Future<List<QuizAttempt>> loadAttempts() async {
     final stored = await _prefs.getString(_historyKey);

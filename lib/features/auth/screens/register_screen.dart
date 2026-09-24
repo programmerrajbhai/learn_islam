@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
-import '../../../core/widgets/app_background.dart';
 
+import '../../../core/widgets/app_background.dart';
 import '../../home/screens/home_screen.dart';
 import '../services/auth_service.dart';
+import 'verify_email_screen.dart';
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -30,8 +31,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
     super.dispose();
   }
 
+
+
   Future<void> _register() async {
-    if (!_formKey.currentState!.validate() || _busy) return;
+    if (_busy || !_formKey.currentState!.validate()) return;
 
     setState(() => _busy = true);
 
@@ -45,27 +48,29 @@ class _RegisterScreenState extends State<RegisterScreen> {
       if (!mounted) return;
 
       Navigator.of(context).pushAndRemoveUntil(
-        MaterialPageRoute<void>(builder: (_) => HomeScreen(user: user)),
-        (_) => false,
+        MaterialPageRoute<void>(
+          builder: (_) => HomeScreen(user: user),
+        ),
+            (_) => false,
       );
-    } on AuthFailure catch (error) {
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(error.message)));
-      }
-    } catch (_) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Account তৈরি করা যায়নি। আবার চেষ্টা করুন।'),
+    } catch (error) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            error is AuthFailure
+                ? error.message
+                : 'Account তৈরি করা যায়নি। আবার চেষ্টা করুন।',
           ),
-        );
-      }
+        ),
+      );
     } finally {
       if (mounted) setState(() => _busy = false);
     }
   }
+
+
 
   @override
   Widget build(BuildContext context) {
@@ -89,11 +94,15 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     children: [
                       Text(
                         'শেখার যাত্রা শুরু করুন',
-                        style: Theme.of(context).textTheme.headlineMedium
+                        style: Theme.of(context)
+                            .textTheme
+                            .headlineMedium
                             ?.copyWith(fontWeight: FontWeight.bold),
                       ),
                       const SizedBox(height: 8),
-                      const Text('একটি demo account তৈরি করুন।'),
+                      const Text(
+                        'আপনার email দিয়ে একটি account তৈরি করুন।',
+                      ),
                       const SizedBox(height: 28),
                       TextFormField(
                         controller: _nameController,
@@ -101,7 +110,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         textInputAction: TextInputAction.next,
                         decoration: const InputDecoration(
                           labelText: 'আপনার নাম',
-                          prefixIcon: Icon(Icons.person_outline_rounded),
+                          prefixIcon:
+                          Icon(Icons.person_outline_rounded),
                           border: OutlineInputBorder(),
                         ),
                         validator: (value) {
@@ -116,16 +126,17 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         controller: _emailController,
                         keyboardType: TextInputType.emailAddress,
                         textInputAction: TextInputAction.next,
+                        autofillHints: const [AutofillHints.email],
                         decoration: const InputDecoration(
                           labelText: 'Email',
-                          prefixIcon: Icon(Icons.mail_outline_rounded),
+                          prefixIcon:
+                          Icon(Icons.mail_outline_rounded),
                           border: OutlineInputBorder(),
                         ),
                         validator: (value) {
-                          final email = value?.trim() ?? '';
                           if (!RegExp(
                             r'^[^@\s]+@[^@\s]+\.[^@\s]+$',
-                          ).hasMatch(email)) {
+                          ).hasMatch(value?.trim() ?? '')) {
                             return 'সঠিক email লিখুন';
                           }
                           return null;
@@ -136,13 +147,18 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         controller: _passwordController,
                         obscureText: !_showPassword,
                         textInputAction: TextInputAction.next,
+                        autofillHints: const [
+                          AutofillHints.newPassword,
+                        ],
                         decoration: InputDecoration(
                           labelText: 'Password',
-                          prefixIcon: const Icon(Icons.lock_outline_rounded),
+                          prefixIcon:
+                          const Icon(Icons.lock_outline_rounded),
                           border: const OutlineInputBorder(),
                           suffixIcon: IconButton(
-                            onPressed: () =>
-                                setState(() => _showPassword = !_showPassword),
+                            onPressed: () => setState(
+                                  () => _showPassword = !_showPassword,
+                            ),
                             icon: Icon(
                               _showPassword
                                   ? Icons.visibility_off_outlined
@@ -152,7 +168,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         ),
                         validator: (value) {
                           if ((value?.length ?? 0) < 6) {
-                            return 'অন্তত ৬টি অক্ষর লিখুন';
+                            return 'অন্তত ৬ অক্ষরের password লিখুন';
                           }
                           return null;
                         },
@@ -165,7 +181,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         onFieldSubmitted: (_) => _register(),
                         decoration: const InputDecoration(
                           labelText: 'Confirm password',
-                          prefixIcon: Icon(Icons.lock_reset_rounded),
+                          prefixIcon:
+                          Icon(Icons.lock_reset_rounded),
                           border: OutlineInputBorder(),
                         ),
                         validator: (value) {
@@ -175,27 +192,20 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           return null;
                         },
                       ),
-                      const SizedBox(height: 12),
-                      const Text(
-                        'Demo mode: password সংরক্ষণ বা যাচাই হয় না। নিজের আসল password লিখবেন না।',
-                        style: TextStyle(
-                          color: Color(0xFF755B20),
-                          fontSize: 13,
-                        ),
-                      ),
                       const SizedBox(height: 24),
                       FilledButton(
                         onPressed: _busy ? null : _register,
                         child: Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          padding:
+                          const EdgeInsets.symmetric(vertical: 14),
                           child: _busy
                               ? const SizedBox(
-                                  height: 20,
-                                  width: 20,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                  ),
-                                )
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                            ),
+                          )
                               : const Text('Account তৈরি করুন'),
                         ),
                       ),

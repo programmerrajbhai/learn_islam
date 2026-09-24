@@ -11,44 +11,114 @@ class QuizRepository {
     return _cachedTopics ??= _readTopics();
   }
 
-  Future<List<QuizTopic>> _readTopics() async {
-    final text = await rootBundle.loadString('assets/data/free_quizzes.json');
-
+  Future<List<QuizTopic>> _readFile(String path) async {
+    final text = await rootBundle.loadString(path);
     final data = jsonDecode(text) as Map<String, dynamic>;
 
-    final topics = (data['topics'] as List<dynamic>)
+    return (data['topics'] as List<dynamic>)
         .map(
-          (item) => QuizTopic.fromJson(Map<String, dynamic>.from(item as Map)),
-        )
+          (item) => QuizTopic.fromJson(
+        Map<String, dynamic>.from(item as Map),
+      ),
+    )
         .toList();
+  }
+
+  Future<List<QuizTopic>> _readTopics() async {
+    final free = await _readFile(
+      'assets/data/free_quizzes.json',
+    );
+    final premium = await _readFile(
+      'assets/data/premium_catalog.json',
+    );
+
+    final topics = <QuizTopic>[];
+    final positions = <String, int>{};
+
+    void addTopic(QuizTopic topic) {
+      final position = positions[topic.id];
+
+      if (position == null) {
+        positions[topic.id] = topics.length;
+        topics.add(topic);
+        return;
+      }
+
+      final existing = topics[position];
+      topics[position] = QuizTopic(
+        id: existing.id,
+        title: existing.title,
+        description: existing.description,
+        quizzes: [
+          ...existing.quizzes,
+          ...topic.quizzes,
+        ],
+      );
+    }
+
+    for (final topic in free) {
+      addTopic(topic);
+    }
+    for (final topic in premium) {
+      addTopic(topic);
+    }
 
     if (topics.isEmpty) {
-      throw const FormatException('কোনো quiz topic পাওয়া যায়নি।');
+      throw const FormatException(
+        'কোনো quiz topic পাওয়া যায়নি।',
+      );
     }
 
     final ids = <String>{};
 
     for (final topic in topics) {
-      if (!ids.add(topic.id) || topic.quizzes.isEmpty) {
-        throw FormatException('Topic data ভুল: ${topic.id}');
+      if (!ids.add('topic:${topic.id}') ||
+          topic.quizzes.isEmpty) {
+        throw FormatException(
+          'Topic data ভুল: ${topic.id}',
+        );
       }
 
       for (final quiz in topic.quizzes) {
-        if (!ids.add(quiz.id) || quiz.questions.isEmpty) {
-          throw FormatException('Quiz data ভুল: ${quiz.id}');
+        if (!ids.add('quiz:${quiz.id}')) {
+          throw FormatException(
+            'একই Quiz ID একাধিকবার আছে: ${quiz.id}',
+          );
+        }
+
+        if (quiz.isPremium) {
+          if (quiz.coinCost <= 0 ||
+              quiz.questionCount <= 0 ||
+              quiz.questions.isNotEmpty) {
+            throw FormatException(
+              'Paid quiz catalog ভুল: ${quiz.id}',
+            );
+          }
+          continue;
+        }
+
+        if (quiz.questions.isEmpty ||
+            quiz.coinCost != 0) {
+          throw FormatException(
+            'Free quiz data ভুল: ${quiz.id}',
+          );
         }
 
         for (final question in quiz.questions) {
-          final validSource =
-              Uri.tryParse(question.sourceUrl)?.hasScheme == true;
+          final uri = Uri.tryParse(
+            question.sourceUrl,
+          );
 
-          if (!ids.add(question.id) ||
+          if (!ids.add('question:${question.id}') ||
               question.options.length != 4 ||
               question.correctIndex < 0 ||
-              question.correctIndex >= question.options.length ||
+              question.correctIndex >=
+                  question.options.length ||
               question.explanation.trim().isEmpty ||
-              !validSource) {
-            throw FormatException('Question data ভুল: ${question.id}');
+              uri?.scheme != 'https') {
+            throw FormatException(
+              'Question data ভুল: ${question.id}',
+            );
           }
         }
       }
@@ -58,4 +128,5 @@ class QuizRepository {
   }
 }
 
-final QuizRepository quizRepository = QuizRepository();
+final QuizRepository quizRepository =
+QuizRepository();

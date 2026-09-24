@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../auth/services/auth_service.dart';
+import '../../legal/screens/delete_account_screen.dart';
 
 class ProfileScreen extends StatelessWidget {
   const ProfileScreen({
@@ -48,7 +49,8 @@ class ProfileScreen extends StatelessWidget {
               const SizedBox(width: 16),
               Expanded(
                 child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                  crossAxisAlignment:
+                  CrossAxisAlignment.start,
                   children: [
                     Text(
                       user.name,
@@ -70,34 +72,25 @@ class ProfileScreen extends StatelessWidget {
                         fontSize: 12,
                       ),
                     ),
+
+
+                    const SizedBox(height: 12),
+                    TextButton.icon(
+                      onPressed: signingOut
+                          ? null
+                          : () => Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) => const DeleteAccountScreen(),
+                        ),
+                      ),
+                      icon: const Icon(Icons.person_remove_outlined),
+                      label: const Text('Delete Account'),
+                      style: TextButton.styleFrom(
+                        foregroundColor: const Color(0xFFB43D3D),
+                        padding: const EdgeInsets.symmetric(vertical: 15),
+                      ),
+                    ),
                   ],
-                ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 25),
-        Container(
-          padding: const EdgeInsets.all(18),
-          decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.88),
-            borderRadius: BorderRadius.circular(20),
-          ),
-          child: const Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Icon(
-                Icons.info_outline_rounded,
-                color: Color(0xFF846B37),
-              ),
-              SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  'এটি demo account। তথ্য শুধু এই ডিভাইসে আছে; Google বা Firebase login এখনো যুক্ত হয়নি।',
-                  style: TextStyle(
-                    color: Color(0xFF52695D),
-                    height: 1.5,
-                  ),
                 ),
               ),
             ],
@@ -107,9 +100,13 @@ class ProfileScreen extends StatelessWidget {
         OutlinedButton.icon(
           onPressed: signingOut ? null : onLogout,
           icon: const Icon(Icons.logout_rounded),
-          label: Text(signingOut ? 'Logout হচ্ছে...' : 'Logout'),
+          label: Text(
+            signingOut ? 'Logout হচ্ছে...' : 'Logout',
+          ),
           style: OutlinedButton.styleFrom(
-            padding: const EdgeInsets.symmetric(vertical: 15),
+            padding: const EdgeInsets.symmetric(
+              vertical: 15,
+            ),
           ),
         ),
       ],
