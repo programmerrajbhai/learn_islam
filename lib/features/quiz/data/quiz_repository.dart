@@ -25,12 +25,8 @@ class QuizRepository {
   }
 
   Future<List<QuizTopic>> _readTopics() async {
-    final free = await _readFile(
-      'assets/data/free_quizzes.json',
-    );
-    final premium = await _readFile(
-      'assets/data/premium_catalog.json',
-    );
+    final free = await _readFile('assets/data/free_quizzes.json');
+    final premium = await _readFile('assets/data/premium_catalog.json');
 
     final topics = <QuizTopic>[];
     final positions = <String, int>{};
@@ -49,10 +45,7 @@ class QuizRepository {
         id: existing.id,
         title: existing.title,
         description: existing.description,
-        quizzes: [
-          ...existing.quizzes,
-          ...topic.quizzes,
-        ],
+        quizzes: [...existing.quizzes, ...topic.quizzes],
       );
     }
 
@@ -64,61 +57,45 @@ class QuizRepository {
     }
 
     if (topics.isEmpty) {
-      throw const FormatException(
-        'কোনো quiz topic পাওয়া যায়নি।',
-      );
+      throw const FormatException('কোনো quiz topic পাওয়া যায়নি।');
     }
 
-    final ids = <String>{};
+    final topicIds = <String>{};
+    final quizIds = <String>{};
+    final questionIds = <String>{};
 
     for (final topic in topics) {
-      if (!ids.add('topic:${topic.id}') ||
-          topic.quizzes.isEmpty) {
-        throw FormatException(
-          'Topic data ভুল: ${topic.id}',
-        );
+      if (!topicIds.add(topic.id) || topic.quizzes.isEmpty) {
+        throw FormatException('Topic data ভুল: ${topic.id}');
       }
 
       for (final quiz in topic.quizzes) {
-        if (!ids.add('quiz:${quiz.id}')) {
-          throw FormatException(
-            'একই Quiz ID একাধিকবার আছে: ${quiz.id}',
-          );
-        }
-
-        if (quiz.isPremium) {
-          if (quiz.coinCost <= 0 ||
-              quiz.questionCount <= 0 ||
-              quiz.questions.isNotEmpty) {
-            throw FormatException(
-              'Paid quiz catalog ভুল: ${quiz.id}',
-            );
-          }
-          continue;
+        if (!quizIds.add(quiz.id)) {
+          throw FormatException('একই Quiz ID একাধিকবার আছে: ${quiz.id}');
         }
 
         if (quiz.questions.isEmpty ||
-            quiz.coinCost != 0) {
-          throw FormatException(
-            'Free quiz data ভুল: ${quiz.id}',
-          );
+            quiz.questionCount != quiz.questions.length ||
+            (quiz.isPremium && quiz.coinCost <= 0) ||
+            (!quiz.isPremium && quiz.coinCost != 0)) {
+          throw FormatException('Quiz data ভুল: ${quiz.id}');
         }
 
         for (final question in quiz.questions) {
-          final uri = Uri.tryParse(
-            question.sourceUrl,
-          );
+          final uri = Uri.tryParse(question.sourceUrl);
 
-          if (!ids.add('question:${question.id}') ||
+          if (!questionIds.add(question.id) ||
+              question.question.trim().isEmpty ||
               question.options.length != 4 ||
+              question.options.any((option) => option.trim().isEmpty) ||
+              question.options.toSet().length != 4 ||
               question.correctIndex < 0 ||
-              question.correctIndex >=
-                  question.options.length ||
+              question.correctIndex >= question.options.length ||
               question.explanation.trim().isEmpty ||
-              uri?.scheme != 'https') {
-            throw FormatException(
-              'Question data ভুল: ${question.id}',
-            );
+              question.sourceTitle.trim().isEmpty ||
+              uri?.scheme != 'https' ||
+              uri?.host.isEmpty != false) {
+            throw FormatException('Question data ভুল: ${question.id}');
           }
         }
       }
@@ -128,5 +105,4 @@ class QuizRepository {
   }
 }
 
-final QuizRepository quizRepository =
-QuizRepository();
+final QuizRepository quizRepository = QuizRepository();

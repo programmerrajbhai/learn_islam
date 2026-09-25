@@ -1,4 +1,5 @@
 import 'dart:async';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
@@ -35,47 +36,80 @@ class CoinStoreData {
 
 class BillingService extends ChangeNotifier {
   BillingService._();
+
   static final BillingService instance = BillingService._();
 
   final InAppPurchase _billing = InAppPurchase.instance;
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+
   StreamSubscription<List<PurchaseDetails>>? _subscription;
+  final Set<String> _processingPurchases = {};
 
   bool isPurchasePending = false;
+  String? lastError;
 
-  // আপনার দেওয়া ১২টি প্রোডাক্টের সম্পূর্ণ লিস্ট
   static const List<CoinPack> packs = [
-    CoinPack(productId: 'learn_islam_coins_40', coins: 40, targetUsdCents: 40),
-    CoinPack(productId: 'learn_islam_coins_50', coins: 50, targetUsdCents: 50),
-    CoinPack(productId: 'learn_islam_coins_100', coins: 100, targetUsdCents: 100),
-    CoinPack(productId: 'learn_islam_coins_130', coins: 130, targetUsdCents: 130),
-    CoinPack(productId: 'learn_islam_coins_150', coins: 150, targetUsdCents: 150),
-    CoinPack(productId: 'learn_islam_coins_200', coins: 200, targetUsdCents: 200),
-    CoinPack(productId: 'learn_islam_coins_250', coins: 250, targetUsdCents: 250),
-    CoinPack(productId: 'learn_islam_coins_300', coins: 300, targetUsdCents: 300),
-    CoinPack(productId: 'learn_islam_coins_350', coins: 350, targetUsdCents: 350),
-    CoinPack(productId: 'learn_islam_coins_400', coins: 400, targetUsdCents: 400),
-    CoinPack(productId: 'learn_islam_coins_450', coins: 450, targetUsdCents: 450),
-    CoinPack(productId: 'learn_islam_coins_500', coins: 500, targetUsdCents: 500),
+    CoinPack(
+      productId: 'learn_islam_coins_40',
+      coins: 40,
+      targetUsdCents: 40,
+    ),
+    CoinPack(
+      productId: 'learn_islam_coins_50',
+      coins: 50,
+      targetUsdCents: 50,
+    ),
+    CoinPack(
+      productId: 'learn_islam_coins_100',
+      coins: 100,
+      targetUsdCents: 100,
+    ),
+    CoinPack(
+      productId: 'learn_islam_coins_130',
+      coins: 130,
+      targetUsdCents: 130,
+    ),
+    CoinPack(
+      productId: 'learn_islam_coins_150',
+      coins: 150,
+      targetUsdCents: 150,
+    ),
+    CoinPack(
+      productId: 'learn_islam_coins_200',
+      coins: 200,
+      targetUsdCents: 200,
+    ),
+    CoinPack(
+      productId: 'learn_islam_coins_250',
+      coins: 250,
+      targetUsdCents: 250,
+    ),
   ];
 
   void initialize() {
-    final purchaseUpdated = _billing.purchaseStream;
-    _subscription = purchaseUpdated.listen((purchaseDetailsList) {
-      _listenToPurchaseUpdated(purchaseDetailsList);
-    }, onDone: () {
-      _subscription?.cancel();
-    }, onError: (error) {
-      debugPrint("Purchase Stream Error: $error");
-    });
+    if (_subscription != null) return;
+
+    _subscription = _billing.purchaseStream.listen(
+          (purchases) {
+        unawaited(_handlePurchases(purchases));
+      },
+      onError: (Object error) {
+        lastError = 'Purchase update পাওয়া যায়নি।';
+        debugPrint('Purchase stream error: $error');
+        notifyListeners();
+      },
+    );
   }
 
   void disposeService() {
     _subscription?.cancel();
+    _subscription = null;
   }
 
   Future<CoinStoreData> loadStore() async {
     try {
       final available = await _billing.isAvailable();
+
       if (!available) {
         return const CoinStoreData(
           available: false,
@@ -84,20 +118,22 @@ class BillingService extends ChangeNotifier {
         );
       }
 
-      final productIds = packs.map((pack) => pack.productId).toSet();
-      final response = await _billing.queryProductDetails(productIds);
-
-      final products = <String, ProductDetails>{
-        for (final product in response.productDetails) product.id: product,
-      };
+      final response = await _billing.queryProductDetails(
+        packs.map((pack) => pack.productId).toSet(),
+      );
 
       return CoinStoreData(
         available: true,
-        products: products,
+        products: {
+          for (final product in response.productDetails)
+            product.id: product,
+        },
         error: response.error?.message,
         notFoundIds: response.notFoundIDs,
       );
-    } catch (_) {
+    } catch (error) {
+      debugPrint('Product load failed: $error');
+
       return const CoinStoreData(
         available: false,
         products: {},
@@ -107,68 +143,154 @@ class BillingService extends ChangeNotifier {
   }
 
   Future<void> buyCoinPack(ProductDetails productDetails) async {
-    final PurchaseParam purchaseParam = PurchaseParam(productDetails: productDetails);
-    // Auto consume true করে দিলাম যাতে ইউজার বারবার কয়েন কিনতে পারে
-    await _billing.buyConsumable(purchaseParam: purchaseParam, autoConsume: true);
-  }
+    if (isPurchasePending) return;
 
-  Future<void> _listenToPurchaseUpdated(List<PurchaseDetails> purchaseDetailsList) async {
-    for (final purchaseDetails in purchaseDetailsList) {
-      if (purchaseDetails.status == PurchaseStatus.pending) {
-        isPurchasePending = true;
-        notifyListeners();
-      } else {
-        if (purchaseDetails.status == PurchaseStatus.error) {
-          isPurchasePending = false;
-          notifyListeners();
-        } else if (purchaseDetails.status == PurchaseStatus.purchased ||
-            purchaseDetails.status == PurchaseStatus.restored) {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      throw StateError('Coin কিনতে আগে login করুন।');
+    }
 
-          // পেমেন্ট সফল হলে ফায়ারবেসে কয়েন অ্যাড হবে
-          await _deliverCoinsToUser(purchaseDetails);
-        }
+    if (!packs.any((pack) => pack.productId == productDetails.id)) {
+      throw StateError('অজানা coin pack।');
+    }
 
-        if (purchaseDetails.pendingCompletePurchase) {
-          await _billing.completePurchase(purchaseDetails);
-        }
+    lastError = null;
+    isPurchasePending = true;
+    notifyListeners();
 
+    try {
+      final started = await _billing.buyConsumable(
+        purchaseParam: PurchaseParam(productDetails: productDetails),
+        autoConsume: true,
+      );
+
+      if (!started) {
         isPurchasePending = false;
         notifyListeners();
+        throw StateError('Google Play purchase শুরু করতে পারেনি।');
+      }
+    } catch (_) {
+      isPurchasePending = false;
+      notifyListeners();
+      rethrow;
+    }
+  }
+
+  Future<void> _handlePurchases(List<PurchaseDetails> purchases) async {
+    for (final purchase in purchases) {
+      switch (purchase.status) {
+        case PurchaseStatus.pending:
+          isPurchasePending = true;
+          notifyListeners();
+          break;
+
+        case PurchaseStatus.purchased:
+        case PurchaseStatus.restored:
+          await _handleSuccessfulPurchase(purchase);
+          break;
+
+        case PurchaseStatus.error:
+          lastError = purchase.error?.message ?? 'Purchase ব্যর্থ হয়েছে।';
+          isPurchasePending = false;
+          notifyListeners();
+          break;
+
+        case PurchaseStatus.canceled:
+          isPurchasePending = false;
+          notifyListeners();
+          break;
       }
     }
   }
 
-// Firebase Ledger: ইউজারের অ্যাকাউন্টে কয়েন যোগ করা এবং হিস্ট্রি রাখা
-  Future<void> _deliverCoinsToUser(PurchaseDetails purchaseDetails) async {
-    final uid = FirebaseAuth.instance.currentUser?.uid;
-    if (uid == null) return;
+  Future<void> _handleSuccessfulPurchase(
+      PurchaseDetails purchase,
+      ) async {
+    final purchaseId = purchase.purchaseID;
+
+    // নির্ভরযোগ্য ID ছাড়া coin দেওয়া হলে একই purchase শনাক্ত করা যায় না।
+    if (purchaseId == null || purchaseId.isEmpty) {
+      lastError = 'Purchase ID পাওয়া যায়নি। Support-এ যোগাযোগ করুন।';
+      isPurchasePending = false;
+      notifyListeners();
+      return;
+    }
+
+    if (!_processingPurchases.add(purchaseId)) return;
 
     try {
-      final pack = packs.firstWhere((p) => p.productId == purchaseDetails.productID);
-      final userRef = FirebaseFirestore.instance.collection('users').doc(uid);
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) {
+        throw StateError('Purchase সম্পন্ন হয়েছে; account-এ login করুন।');
+      }
 
-      // ১. ইউজারের মূল ব্যালেন্স আপডেট করা
-      await userRef.set({
-        'coins': FieldValue.increment(pack.coins),
-        'last_purchase_date': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
+      final pack = packs.where(
+            (item) => item.productId == purchase.productID,
+      );
 
-      // ২. পারচেজ হিস্ট্রি (Ledger) সেভ করা
-      // purchaseID দিয়ে ডকুমেন্ট সেভ করলে একই পেমেন্ট দুবার অ্যাড হবে না
-      final historyRef = userRef.collection('purchases').doc(purchaseDetails.purchaseID);
-      await historyRef.set({
-        'coins': pack.coins,
-        'productId': pack.productId,
-        'purchaseId': purchaseDetails.purchaseID,
-        'createdAt': FieldValue.serverTimestamp(),
+      if (pack.isEmpty) {
+        throw StateError('Purchase-এর coin pack পাওয়া যায়নি।');
+      }
+
+      final coins = pack.first.coins;
+      final userRef = _firestore.collection('users').doc(user.uid);
+      final historyRef = userRef.collection('purchases').doc(purchaseId);
+
+      await _firestore.runTransaction((transaction) async {
+        // Transaction-এর সব read আগে, তারপর write।
+        final history = await transaction.get(historyRef);
+        final account = await transaction.get(userRef);
+
+        if (history.exists) {
+          return; // আগেই coin দেওয়া হয়েছে।
+        }
+
+        final data = account.data();
+        final rawBalance = data?['coins'];
+        final oldBalance = rawBalance is num ? rawBalance.toInt() : 0;
+
+        if (oldBalance < 0) {
+          throw StateError('Wallet balance invalid।');
+        }
+
+        final newBalance = oldBalance + coins;
+
+        transaction.set(
+          userRef,
+          {
+            'coins': newBalance,
+            'last_purchase_date': FieldValue.serverTimestamp(),
+          },
+          SetOptions(merge: true),
+        );
+
+        transaction.set(historyRef, {
+          'coins': coins,
+          'productId': purchase.productID,
+          'purchaseId': purchaseId,
+          'createdAt': FieldValue.serverTimestamp(),
+          'balanceAfter': newBalance,
+        });
       });
 
-    } catch (e) {
-      debugPrint("Coin delivery failed: $e");
+      // Coin save সফল হওয়ার পরেই purchase complete করি।
+      if (purchase.pendingCompletePurchase) {
+        await _billing.completePurchase(purchase);
+      }
+
+      lastError = null;
+      isPurchasePending = false;
+      notifyListeners();
+    } catch (error) {
+      debugPrint('Coin delivery failed: $error');
+      lastError = 'Payment হয়েছে, কিন্তু coin save হয়নি। '
+          'আরেকবার কিনবেন না; Support-এ যোগাযোগ করুন।';
+      isPurchasePending = false;
+      notifyListeners();
+    } finally {
+      _processingPurchases.remove(purchaseId);
     }
   }
-
-
 }
 
 final BillingService billingService = BillingService.instance;

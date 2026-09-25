@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+
 import '../../../core/widgets/app_background.dart';
 
 class PrivacyPolicyScreen extends StatelessWidget {
@@ -11,7 +12,6 @@ class PrivacyPolicyScreen extends StatelessWidget {
         backgroundColor: Colors.transparent,
         appBar: AppBar(
           backgroundColor: Colors.transparent,
-          elevation: 0,
           title: const Text('Privacy Policy'),
         ),
         body: SafeArea(
@@ -22,37 +22,71 @@ class PrivacyPolicyScreen extends StatelessWidget {
                 padding: const EdgeInsets.all(24),
                 children: const [
                   Text(
-                    'Privacy Policy',
+                    'Learn Islam — Privacy Policy',
                     style: TextStyle(
                       fontSize: 24,
                       fontWeight: FontWeight.bold,
-                      color: Color(0xFF145444),
                     ),
                   ),
                   SizedBox(height: 8),
-                  Text('Last updated: September 2026', style: TextStyle(color: Colors.grey)),
+                  Text('Last updated: 25 September 2026'),
                   SizedBox(height: 24),
                   _Section(
-                    title: '1. Information We Collect',
-                    content: 'When you register, we collect your Name and Email address via Google Firebase Authentication to create and secure your profile. We also save your quiz progress locally and on our servers.',
+                    title: '1. কী তথ্য সংগ্রহ করি',
+                    content:
+                    'Account তৈরি বা login করলে Firebase '
+                        'Authentication-এর মাধ্যমে আপনার নাম, email '
+                        'ও account ID ব্যবহার করি। Quiz progress এই '
+                        'device-এ সংরক্ষিত হয়। Wallet balance, coin '
+                        'purchase history ও premium quiz unlock '
+                        'আপনার account-এর অধীনে Firebase Firestore-এ '
+                        'সংরক্ষিত হয়।',
                   ),
                   _Section(
-                    title: '2. How We Use Your Data',
-                    content: 'We use your data to provide a personalized experience, track your learning progress, and manage your premium coin balance. We do not sell your personal data to any third parties.',
+                    title: '2. কেন তথ্য ব্যবহার করি',
+                    content:
+                    'Login চালু রাখা, quiz progress দেখানো, '
+                        'coin balance ও purchase history প্রদর্শন, '
+                        'এবং কেনা coin দিয়ে premium quiz unlock '
+                        'করার জন্য এই তথ্য ব্যবহার করি।',
                   ),
                   _Section(
-                    title: '3. Data Security',
-                    content: 'Your data is securely stored using Google Firebase. We implement standard security measures to ensure your information is safe from unauthorized access.',
+                    title: '3. Purchase',
+                    content:
+                    'Android app-এর coin purchase Google Play '
+                        'Billing-এর মাধ্যমে হয়। Payment-এর পর '
+                        'product ID, purchase ID, প্রাপ্ত coin '
+                        'ও সময় purchase history-তে সংরক্ষণ করি। '
+                        'আপনার card number আমাদের app সংগ্রহ করে না।',
                   ),
                   _Section(
-                    title: '4. Account Deletion',
-                    content: 'You can delete your account and all associated data at any time from the "Profile > Delete Account" section inside the app, or by contacting us via our website.',
+                    title: '4. সেবা প্রদানকারী',
+                    content:
+                    'Login ও account data-এর জন্য Google Firebase '
+                        'এবং in-app purchase-এর জন্য Google Play '
+                        'ব্যবহার করা হয়। এই সেবাগুলো পরিচালনার '
+                        'প্রয়োজনে সংশ্লিষ্ট তথ্য প্রক্রিয়াকরণ '
+                        'করতে পারে। আমরা ব্যক্তিগত তথ্য বিক্রি করি না।',
                   ),
                   _Section(
-                    title: '5. Contact Us',
-                    content: 'If you have any questions regarding this Privacy Policy, please contact us at: support@programmerraj.site',
+                    title: '5. Account ও data মুছে ফেলা',
+                    content:
+                    'App-এর Profile > Delete Account থেকে '
+                        'account মুছতে পারবেন। এতে Firebase account, '
+                        'এই account-এর wallet, purchase history, '
+                        'premium quiz unlock এবং এই device-এ রাখা '
+                        'quiz progress মুছে ফেলার চেষ্টা করা হয়। '
+                        'মুছতে সমস্যা হলে support-এ যোগাযোগ করুন। '
+                        'Google Play-এর নিজস্ব payment/order record '
+                        'আমাদের app থেকে মুছে ফেলা যায় না।',
                   ),
-                  SizedBox(height: 40),
+                  _Section(
+                    title: '6. যোগাযোগ',
+                    content:
+                    'Privacy বা account deletion বিষয়ে লিখুন: '
+                        'novatechsoft668@outlook.com',
+                  ),
+                  SizedBox(height: 32),
                 ],
               ),
             ),
@@ -64,14 +98,18 @@ class PrivacyPolicyScreen extends StatelessWidget {
 }
 
 class _Section extends StatelessWidget {
-  const _Section({required this.title, required this.content});
+  const _Section({
+    required this.title,
+    required this.content,
+  });
+
   final String title;
   final String content;
 
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 20),
+      padding: const EdgeInsets.only(bottom: 22),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -80,13 +118,15 @@ class _Section extends StatelessWidget {
             style: const TextStyle(
               fontSize: 18,
               fontWeight: FontWeight.bold,
-              color: Color(0xFF19332D),
             ),
           ),
           const SizedBox(height: 8),
           Text(
             content,
-            style: const TextStyle(fontSize: 15, color: Color(0xFF555555), height: 1.5),
+            style: const TextStyle(
+              fontSize: 15,
+              height: 1.55,
+            ),
           ),
         ],
       ),

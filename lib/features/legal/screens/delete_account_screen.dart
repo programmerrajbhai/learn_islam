@@ -1,3 +1,4 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:google_sign_in/google_sign_in.dart';
@@ -14,18 +15,95 @@ class DeleteAccountScreen extends StatefulWidget {
       _DeleteAccountScreenState();
 }
 
-class _DeleteAccountScreenState extends State<DeleteAccountScreen> {
-  final _passwordController = TextEditingController();
+class _DeleteAccountScreenState
+    extends State<DeleteAccountScreen> {
+  final TextEditingController _passwordController =
+  TextEditingController();
+
   bool _deleting = false;
   bool _showPassword = false;
 
   User? get _user => FirebaseAuth.instance.currentUser;
 
-  bool get _usesPassword {
-    return _user?.providerData.any(
-          (provider) => provider.providerId == 'password',
-    ) ??
-        false;
+  bool get _usesPassword =>
+      _user?.providerData.any(
+            (provider) => provider.providerId == 'password',
+      ) ??
+          false;
+
+  bool get _usesGoogle =>
+      _user?.providerData.any(
+            (provider) => provider.providerId == 'google.com',
+      ) ??
+          false;
+
+  Future<void> _reauthenticate(User user) async {
+    if (_usesPassword) {
+      final email = user.email;
+
+      if (email == null || email.isEmpty) {
+        throw StateError('Account email পাওয়া যায়নি।');
+      }
+
+      await user.reauthenticateWithCredential(
+        EmailAuthProvider.credential(
+          email: email,
+          password: _passwordController.text,
+        ),
+      );
+      return;
+    }
+
+    if (_usesGoogle) {
+      await GoogleSignIn.instance.initialize();
+
+      final googleUser =
+      await GoogleSignIn.instance.authenticate();
+      final idToken = googleUser.authentication.idToken;
+
+      if (idToken == null) {
+        throw StateError('Google login যাচাই করা যায়নি।');
+      }
+
+      await user.reauthenticateWithCredential(
+        GoogleAuthProvider.credential(idToken: idToken),
+      );
+      return;
+    }
+
+    throw StateError('এই sign-in পদ্ধতি পাওয়া যায়নি।');
+  }
+
+  Future<void> _deleteCollection(
+      DocumentReference<Map<String, dynamic>> userRef,
+      String collectionName,
+      ) async {
+    final collection = userRef.collection(collectionName);
+
+    while (true) {
+      final page = await collection.limit(200).get();
+
+      if (page.docs.isEmpty) return;
+
+      final batch = FirebaseFirestore.instance.batch();
+
+      for (final document in page.docs) {
+        batch.delete(document.reference);
+      }
+
+      await batch.commit();
+    }
+  }
+
+  Future<void> _deleteFirestoreData(String uid) async {
+    final userRef =
+    FirebaseFirestore.instance.collection('users').doc(uid);
+
+    await _deleteCollection(userRef, 'purchases');
+    await _deleteCollection(userRef, 'coin_transactions');
+    await _deleteCollection(userRef, 'unlocks');
+
+    await userRef.delete();
   }
 
   String _errorMessage(Object error) {
@@ -35,16 +113,22 @@ class _DeleteAccountScreenState extends State<DeleteAccountScreen> {
         case 'invalid-credential':
           return 'Password সঠিক নয়। আবার চেষ্টা করুন।';
         case 'requires-recent-login':
-          return 'নিরাপত্তার জন্য আবার login করে চেষ্টা করুন।';
+          return 'আবার login করে চেষ্টা করুন।';
         case 'network-request-failed':
-          return 'ইন্টারনেট সংযোগ পরীক্ষা করুন।';
-        default:
-          return 'Account মুছতে সমস্যা হয়েছে। আবার চেষ্টা করুন।';
+          return 'Internet সংযোগ পরীক্ষা করুন।';
       }
     }
-    if (error is GoogleSignInException) {
-      return 'Google sign-in সম্পন্ন হয়নি। আবার চেষ্টা করুন।';
+
+    if (error is FirebaseException &&
+        error.code == 'permission-denied') {
+      return 'Firebase permission না থাকায় data মুছতে পারেনি। '
+          'Firestore rules পরীক্ষা করুন।';
     }
+
+    if (error is StateError) {
+      return error.message.toString();
+    }
+
     return 'Account মুছতে সমস্যা হয়েছে। আবার চেষ্টা করুন।';
   }
 
@@ -52,19 +136,15 @@ class _DeleteAccountScreenState extends State<DeleteAccountScreen> {
     if (_deleting) return;
 
     final user = _user;
+
     if (user == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('আগে account-এ login করুন।'),
-        ),
-      );
       return;
     }
 
     if (_usesPassword && _passwordController.text.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Account মুছতে password লিখুন।'),
+          content: Text('Password লিখুন।'),
         ),
       );
       return;
@@ -75,8 +155,8 @@ class _DeleteAccountScreenState extends State<DeleteAccountScreen> {
       builder: (dialogContext) => AlertDialog(
         title: const Text('Account মুছে ফেলবেন?'),
         content: const Text(
-          'আপনার account আর ব্যবহার করা যাবে না। '
-              'এই ডিভাইসে রাখা quiz progress-ও মুছে যাবে। '
+          'আপনার wallet balance, purchase history, '
+              'premium quiz unlock এবং quiz progress মুছে যাবে। '
               'এই কাজ ফিরিয়ে আনা যাবে না।',
         ),
         actions: [
@@ -95,50 +175,21 @@ class _DeleteAccountScreenState extends State<DeleteAccountScreen> {
     );
 
     if (confirmed != true || !mounted) return;
+
     setState(() => _deleting = true);
 
     try {
-      final hasGoogle = user.providerData.any(
-            (provider) => provider.providerId == 'google.com',
-      );
-
-      if (_usesPassword) {
-        final email = user.email;
-        if (email == null || email.isEmpty) {
-          throw StateError('Account email পাওয়া যায়নি।');
-        }
-
-        final credential = EmailAuthProvider.credential(
-          email: email,
-          password: _passwordController.text,
-        );
-
-        await user.reauthenticateWithCredential(credential);
-      } else if (hasGoogle) {
-        await GoogleSignIn.instance.initialize();
-        final googleUser =
-        await GoogleSignIn.instance.authenticate();
-        final idToken = googleUser.authentication.idToken;
-
-        if (idToken == null) {
-          throw StateError('Google token পাওয়া যায়নি।');
-        }
-
-        await user.reauthenticateWithCredential(
-          GoogleAuthProvider.credential(idToken: idToken),
-        );
-      } else {
-        throw StateError('Sign-in পদ্ধতি পাওয়া যায়নি।');
-      }
+      // আগে পরিচয় যাচাই, তারপর account-এর data মুছি।
+      await _reauthenticate(user);
 
       final uid = user.uid;
+      await _deleteFirestoreData(uid);
       await user.delete();
 
-      // Firebase deletion সফল হওয়ার পর এই device-এর local data মুছি।
       final prefs = SharedPreferencesAsync();
       await prefs.remove('free_quiz_attempts_v2_$uid');
 
-      if (hasGoogle) {
+      if (_usesGoogle) {
         try {
           await GoogleSignIn.instance.signOut();
         } catch (_) {
@@ -156,12 +207,16 @@ class _DeleteAccountScreenState extends State<DeleteAccountScreen> {
       );
     } catch (error) {
       if (!mounted) return;
+
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(_errorMessage(error))),
       );
     } finally {
       _passwordController.clear();
-      if (mounted) setState(() => _deleting = false);
+
+      if (mounted) {
+        setState(() => _deleting = false);
+      }
     }
   }
 
@@ -189,8 +244,7 @@ class _DeleteAccountScreenState extends State<DeleteAccountScreen> {
               child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 440),
                 child: Column(
-                  crossAxisAlignment:
-                  CrossAxisAlignment.stretch,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     const Icon(
                       Icons.person_remove_outlined,
@@ -204,17 +258,21 @@ class _DeleteAccountScreenState extends State<DeleteAccountScreen> {
                       style: Theme.of(context)
                           .textTheme
                           .headlineMedium
-                          ?.copyWith(fontWeight: FontWeight.bold),
+                          ?.copyWith(
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
                     const SizedBox(height: 12),
                     Text(
-                      user?.email ?? 'কোনো account login করা নেই',
+                      user?.email ??
+                          'কোনো account login করা নেই',
                       textAlign: TextAlign.center,
                     ),
-                    const SizedBox(height: 24),
+                    const SizedBox(height: 20),
                     const Text(
-                      'Account মুছলে এই account দিয়ে আর login করা যাবে না। '
-                          'এই ডিভাইসে সংরক্ষিত quiz progress মুছে যাবে।',
+                      'Account মুছলে wallet, purchase history, '
+                          'premium unlock ও local quiz progress '
+                          'মুছে যাবে।',
                       textAlign: TextAlign.center,
                     ),
                     if (_usesPassword) ...[
@@ -227,7 +285,8 @@ class _DeleteAccountScreenState extends State<DeleteAccountScreen> {
                           border: const OutlineInputBorder(),
                           suffixIcon: IconButton(
                             onPressed: () => setState(
-                                  () => _showPassword = !_showPassword,
+                                  () => _showPassword =
+                              !_showPassword,
                             ),
                             icon: Icon(
                               _showPassword
@@ -237,10 +296,11 @@ class _DeleteAccountScreenState extends State<DeleteAccountScreen> {
                           ),
                         ),
                       ),
-                    ] else if (user != null) ...[
+                    ] else if (_usesGoogle) ...[
                       const SizedBox(height: 16),
                       const Text(
-                        'পরের ধাপে Google account নির্বাচন করতে হবে।',
+                        'পরের ধাপে Google account '
+                            'নির্বাচন করতে হবে।',
                         textAlign: TextAlign.center,
                       ),
                     ],
@@ -254,7 +314,9 @@ class _DeleteAccountScreenState extends State<DeleteAccountScreen> {
                         const Color(0xFFB43D3D),
                         minimumSize: const Size(0, 54),
                       ),
-                      icon: const Icon(Icons.delete_forever_outlined),
+                      icon: const Icon(
+                        Icons.delete_forever_outlined,
+                      ),
                       label: Text(
                         _deleting
                             ? 'মুছে ফেলা হচ্ছে...'
