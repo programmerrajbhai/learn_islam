@@ -12,3 +12,6 @@
 
 # In-App Purchase (Billing Client)
 -keep class com.android.billingclient.** { *; }
+
+# Fix for R8 Missing Classes (Google Play Core)
+-dontwarn com.google.android.play.core.**
