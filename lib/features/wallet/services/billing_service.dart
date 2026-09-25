@@ -1,9 +1,12 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:in_app_purchase/in_app_purchase.dart';
+import 'package:in_app_purchase_android/billing_client_wrappers.dart';
+import 'package:in_app_purchase_android/in_app_purchase_android.dart';
 
 class CoinPack {
   const CoinPack({
@@ -41,9 +44,9 @@ class BillingService extends ChangeNotifier {
 
   final InAppPurchase _billing = InAppPurchase.instance;
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final Set<String> _processingIds = {};
 
   StreamSubscription<List<PurchaseDetails>>? _subscription;
-  final Set<String> _processingPurchases = {};
 
   bool isPurchasePending = false;
   String? lastError;
@@ -95,6 +98,7 @@ class BillingService extends ChangeNotifier {
       },
       onError: (Object error) {
         lastError = 'Purchase update পাওয়া যায়নি।';
+        isPurchasePending = false;
         debugPrint('Purchase stream error: $error');
         notifyListeners();
       },
@@ -108,9 +112,7 @@ class BillingService extends ChangeNotifier {
 
   Future<CoinStoreData> loadStore() async {
     try {
-      final available = await _billing.isAvailable();
-
-      if (!available) {
+      if (!await _billing.isAvailable()) {
         return const CoinStoreData(
           available: false,
           products: {},
@@ -132,7 +134,7 @@ class BillingService extends ChangeNotifier {
         notFoundIds: response.notFoundIDs,
       );
     } catch (error) {
-      debugPrint('Product load failed: $error');
+      debugPrint('Product load error: $error');
 
       return const CoinStoreData(
         available: false,
@@ -142,15 +144,14 @@ class BillingService extends ChangeNotifier {
     }
   }
 
-  Future<void> buyCoinPack(ProductDetails productDetails) async {
+  Future<void> buyCoinPack(ProductDetails product) async {
     if (isPurchasePending) return;
 
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) {
+    if (FirebaseAuth.instance.currentUser == null) {
       throw StateError('Coin কিনতে আগে login করুন।');
     }
 
-    if (!packs.any((pack) => pack.productId == productDetails.id)) {
+    if (!packs.any((pack) => pack.productId == product.id)) {
       throw StateError('অজানা coin pack।');
     }
 
@@ -160,13 +161,12 @@ class BillingService extends ChangeNotifier {
 
     try {
       final started = await _billing.buyConsumable(
-        purchaseParam: PurchaseParam(productDetails: productDetails),
-        autoConsume: true,
+        purchaseParam: PurchaseParam(productDetails: product),
+        // Coin save সফল হওয়ার আগে Google Play purchase consume হবে না।
+        autoConsume: false,
       );
 
       if (!started) {
-        isPurchasePending = false;
-        notifyListeners();
         throw StateError('Google Play purchase শুরু করতে পারেনি।');
       }
     } catch (_) {
@@ -176,7 +176,36 @@ class BillingService extends ChangeNotifier {
     }
   }
 
-  Future<void> _handlePurchases(List<PurchaseDetails> purchases) async {
+  /// Wallet খোলার সময় call করবে। Firestore write ব্যর্থ হওয়া
+  /// unconsumed Android purchase আবার process করার চেষ্টা করে।
+  Future<void> recoverPendingPurchases() async {
+    if (!Platform.isAndroid ||
+        FirebaseAuth.instance.currentUser == null) {
+      return;
+    }
+
+    try {
+      final android = _billing.getPlatformAddition<
+          InAppPurchaseAndroidPlatformAddition>();
+
+      final response = await android.queryPastPurchases();
+
+      if (response.error != null) {
+        throw StateError(response.error!.message);
+      }
+
+      await _handlePurchases(response.pastPurchases);
+    } catch (error) {
+      debugPrint('Purchase recovery error: $error');
+      lastError = 'আগের purchase যাচাই করা যায়নি। '
+          'Internet চালু রেখে আবার Wallet খুলুন।';
+      notifyListeners();
+    }
+  }
+
+  Future<void> _handlePurchases(
+      List<PurchaseDetails> purchases,
+      ) async {
     for (final purchase in purchases) {
       switch (purchase.status) {
         case PurchaseStatus.pending:
@@ -186,11 +215,12 @@ class BillingService extends ChangeNotifier {
 
         case PurchaseStatus.purchased:
         case PurchaseStatus.restored:
-          await _handleSuccessfulPurchase(purchase);
+          await _deliverAndFinish(purchase);
           break;
 
         case PurchaseStatus.error:
-          lastError = purchase.error?.message ?? 'Purchase ব্যর্থ হয়েছে।';
+          lastError =
+              purchase.error?.message ?? 'Purchase ব্যর্থ হয়েছে।';
           isPurchasePending = false;
           notifyListeners();
           break;
@@ -203,63 +233,71 @@ class BillingService extends ChangeNotifier {
     }
   }
 
-  Future<void> _handleSuccessfulPurchase(
+  Future<void> _deliverAndFinish(
       PurchaseDetails purchase,
       ) async {
     final purchaseId = purchase.purchaseID;
 
-    // নির্ভরযোগ্য ID ছাড়া coin দেওয়া হলে একই purchase শনাক্ত করা যায় না।
     if (purchaseId == null || purchaseId.isEmpty) {
-      lastError = 'Purchase ID পাওয়া যায়নি। Support-এ যোগাযোগ করুন।';
+      lastError = 'Purchase ID পাওয়া যায়নি। '
+          'আরেকবার কিনবেন না; Support-এ যোগাযোগ করুন।';
       isPurchasePending = false;
       notifyListeners();
       return;
     }
 
-    if (!_processingPurchases.add(purchaseId)) return;
+    if (!_processingIds.add(purchaseId)) return;
+
+    isPurchasePending = true;
+    notifyListeners();
 
     try {
       final user = FirebaseAuth.instance.currentUser;
+
       if (user == null) {
-        throw StateError('Purchase সম্পন্ন হয়েছে; account-এ login করুন।');
+        throw StateError('Purchase সম্পন্ন হয়েছে। '
+            'একই account-এ login করে Wallet আবার খুলুন।');
       }
 
-      final pack = packs.where(
-            (item) => item.productId == purchase.productID,
+      final matchingPacks = packs.where(
+            (pack) => pack.productId == purchase.productID,
       );
 
-      if (pack.isEmpty) {
+      if (matchingPacks.isEmpty) {
         throw StateError('Purchase-এর coin pack পাওয়া যায়নি।');
       }
 
-      final coins = pack.first.coins;
-      final userRef = _firestore.collection('users').doc(user.uid);
-      final historyRef = userRef.collection('purchases').doc(purchaseId);
+      final coins = matchingPacks.first.coins;
+      final userRef =
+      _firestore.collection('users').doc(user.uid);
+      final historyRef =
+      userRef.collection('purchases').doc(purchaseId);
 
       await _firestore.runTransaction((transaction) async {
-        // Transaction-এর সব read আগে, তারপর write।
-        final history = await transaction.get(historyRef);
+        // Firestore transaction-এর সব read আগে।
+        final existing = await transaction.get(historyRef);
         final account = await transaction.get(userRef);
 
-        if (history.exists) {
-          return; // আগেই coin দেওয়া হয়েছে।
+        if (existing.exists) {
+          return; // আগে credit হয়েছে; আবার coin যোগ নয়।
         }
 
-        final data = account.data();
-        final rawBalance = data?['coins'];
-        final oldBalance = rawBalance is num ? rawBalance.toInt() : 0;
+        final rawBalance = account.data()?['coins'];
+        final balance =
+        rawBalance is num ? rawBalance.toInt() : 0;
 
-        if (oldBalance < 0) {
+        if (balance < 0) {
           throw StateError('Wallet balance invalid।');
         }
 
-        final newBalance = oldBalance + coins;
+        final newBalance = balance + coins;
 
         transaction.set(
           userRef,
           {
             'coins': newBalance,
-            'last_purchase_date': FieldValue.serverTimestamp(),
+            'last_purchase_date':
+            FieldValue.serverTimestamp(),
           },
           SetOptions(merge: true),
         );
@@ -268,12 +306,29 @@ class BillingService extends ChangeNotifier {
           'coins': coins,
           'productId': purchase.productID,
           'purchaseId': purchaseId,
-          'createdAt': FieldValue.serverTimestamp(),
           'balanceAfter': newBalance,
+          'createdAt': FieldValue.serverTimestamp(),
         });
       });
 
-      // Coin save সফল হওয়ার পরেই purchase complete করি।
+      // Firestore save সফল হওয়ার পরেই Android consumable
+      // আবার কেনার উপযোগী করি।
+      if (Platform.isAndroid) {
+        final android = _billing.getPlatformAddition<
+            InAppPurchaseAndroidPlatformAddition>();
+
+        final result =
+        await android.consumePurchase(purchase);
+
+        if (result.responseCode != BillingResponse.ok &&
+            result.responseCode != BillingResponse.itemNotOwned) {
+          throw StateError(
+            'Coin যোগ হয়েছে, কিন্তু Play purchase '
+                'সম্পন্ন করা যায়নি। Wallet আবার খুলুন।',
+          );
+        }
+      }
+
       if (purchase.pendingCompletePurchase) {
         await _billing.completePurchase(purchase);
       }
@@ -282,15 +337,21 @@ class BillingService extends ChangeNotifier {
       isPurchasePending = false;
       notifyListeners();
     } catch (error) {
-      debugPrint('Coin delivery failed: $error');
-      lastError = 'Payment হয়েছে, কিন্তু coin save হয়নি। '
-          'আরেকবার কিনবেন না; Support-এ যোগাযোগ করুন।';
+      debugPrint('Purchase delivery error: $error');
+
+      lastError = error is StateError
+          ? error.message.toString()
+          : 'Purchase processing শেষ হয়নি। '
+          'আরেকবার কিনবেন না; Internet চালু রেখে '
+          'Wallet আবার খুলুন।';
+
       isPurchasePending = false;
       notifyListeners();
     } finally {
-      _processingPurchases.remove(purchaseId);
+      _processingIds.remove(purchaseId);
     }
   }
 }
 
-final BillingService billingService = BillingService.instance;
+final BillingService billingService =
+    BillingService.instance;
