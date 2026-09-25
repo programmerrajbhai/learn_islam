@@ -1,7 +1,10 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
+
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:crypto/crypto.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:in_app_purchase/in_app_purchase.dart';
@@ -52,42 +55,18 @@ class BillingService extends ChangeNotifier {
   String? lastError;
 
   static const List<CoinPack> packs = [
-    CoinPack(
-      productId: 'learn_islam_coins_40',
-      coins: 40,
-      targetUsdCents: 40,
-    ),
-    CoinPack(
-      productId: 'learn_islam_coins_50',
-      coins: 50,
-      targetUsdCents: 50,
-    ),
-    CoinPack(
-      productId: 'learn_islam_coins_100',
-      coins: 100,
-      targetUsdCents: 100,
-    ),
-    CoinPack(
-      productId: 'learn_islam_coins_130',
-      coins: 130,
-      targetUsdCents: 130,
-    ),
-    CoinPack(
-      productId: 'learn_islam_coins_150',
-      coins: 150,
-      targetUsdCents: 150,
-    ),
-    CoinPack(
-      productId: 'learn_islam_coins_200',
-      coins: 200,
-      targetUsdCents: 200,
-    ),
-    CoinPack(
-      productId: 'learn_islam_coins_250',
-      coins: 250,
-      targetUsdCents: 250,
-    ),
+    CoinPack(productId: 'learn_islam_coins_40', coins: 40, targetUsdCents: 40),
+    CoinPack(productId: 'learn_islam_coins_50', coins: 50, targetUsdCents: 50),
+    CoinPack(productId: 'learn_islam_coins_100', coins: 100, targetUsdCents: 100),
+    CoinPack(productId: 'learn_islam_coins_130', coins: 130, targetUsdCents: 130),
+    CoinPack(productId: 'learn_islam_coins_150', coins: 150, targetUsdCents: 150),
+    CoinPack(productId: 'learn_islam_coins_200', coins: 200, targetUsdCents: 200),
+    CoinPack(productId: 'learn_islam_coins_250', coins: 250, targetUsdCents: 250),
   ];
+
+  String _accountId(String uid) {
+    return sha256.convert(utf8.encode(uid)).toString();
+  }
 
   void initialize() {
     if (_subscription != null) return;
@@ -147,7 +126,8 @@ class BillingService extends ChangeNotifier {
   Future<void> buyCoinPack(ProductDetails product) async {
     if (isPurchasePending) return;
 
-    if (FirebaseAuth.instance.currentUser == null) {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
       throw StateError('Coin কিনতে আগে login করুন।');
     }
 
@@ -160,9 +140,15 @@ class BillingService extends ChangeNotifier {
     notifyListeners();
 
     try {
+      final PurchaseParam purchaseParam = Platform.isAndroid
+          ? GooglePlayPurchaseParam(
+        productDetails: product,
+        applicationUserName: _accountId(user.uid),
+      )
+          : PurchaseParam(productDetails: product);
+
       final started = await _billing.buyConsumable(
-        purchaseParam: PurchaseParam(productDetails: product),
-        // Coin save সফল হওয়ার আগে Google Play purchase consume হবে না।
+        purchaseParam: purchaseParam,
         autoConsume: false,
       );
 
@@ -176,8 +162,6 @@ class BillingService extends ChangeNotifier {
     }
   }
 
-  /// Wallet খোলার সময় call করবে। Firestore write ব্যর্থ হওয়া
-  /// unconsumed Android purchase আবার process করার চেষ্টা করে।
   Future<void> recoverPendingPurchases() async {
     if (!Platform.isAndroid ||
         FirebaseAuth.instance.currentUser == null) {
@@ -198,7 +182,7 @@ class BillingService extends ChangeNotifier {
     } catch (error) {
       debugPrint('Purchase recovery error: $error');
       lastError = 'আগের purchase যাচাই করা যায়নি। '
-          'Internet চালু রেখে আবার Wallet খুলুন।';
+          'Internet চালু রেখে Wallet আবার খুলুন।';
       notifyListeners();
     }
   }
@@ -253,10 +237,37 @@ class BillingService extends ChangeNotifier {
 
     try {
       final user = FirebaseAuth.instance.currentUser;
-
       if (user == null) {
-        throw StateError('Purchase সম্পন্ন হয়েছে। '
-            'একই account-এ login করে Wallet আবার খুলুন।');
+        throw StateError(
+          'Purchase-এর account-এ login করে Wallet খুলুন।',
+        );
+      }
+
+      // অন্য Firebase account-এর purchase এই account-এ credit নয়।
+      if (Platform.isAndroid) {
+        if (purchase is! GooglePlayPurchaseDetails) {
+          throw StateError(
+            'Play purchase তথ্য পাওয়া যায়নি। Support-এ যোগাযোগ করুন।',
+          );
+        }
+
+        final purchaseAccountId =
+            purchase.billingClientPurchase.obfuscatedAccountId;
+
+        if (purchaseAccountId == null ||
+            purchaseAccountId.isEmpty) {
+          throw StateError(
+            'পুরোনো purchase-এর account ID নেই। '
+                'আরেকবার কিনবেন না; Support-এ যোগাযোগ করুন।',
+          );
+        }
+
+        if (purchaseAccountId != _accountId(user.uid)) {
+          throw StateError(
+            'এই purchase অন্য account-এর। '
+                'যে account দিয়ে কিনেছিলেন সেটিতে login করুন।',
+          );
+        }
       }
 
       final matchingPacks = packs.where(
@@ -274,13 +285,10 @@ class BillingService extends ChangeNotifier {
       userRef.collection('purchases').doc(purchaseId);
 
       await _firestore.runTransaction((transaction) async {
-        // Firestore transaction-এর সব read আগে।
         final existing = await transaction.get(historyRef);
         final account = await transaction.get(userRef);
 
-        if (existing.exists) {
-          return; // আগে credit হয়েছে; আবার coin যোগ নয়।
-        }
+        if (existing.exists) return;
 
         final rawBalance = account.data()?['coins'];
         final balance =
@@ -311,8 +319,6 @@ class BillingService extends ChangeNotifier {
         });
       });
 
-      // Firestore save সফল হওয়ার পরেই Android consumable
-      // আবার কেনার উপযোগী করি।
       if (Platform.isAndroid) {
         final android = _billing.getPlatformAddition<
             InAppPurchaseAndroidPlatformAddition>();
@@ -321,10 +327,11 @@ class BillingService extends ChangeNotifier {
         await android.consumePurchase(purchase);
 
         if (result.responseCode != BillingResponse.ok &&
-            result.responseCode != BillingResponse.itemNotOwned) {
+            result.responseCode !=
+                BillingResponse.itemNotOwned) {
           throw StateError(
             'Coin যোগ হয়েছে, কিন্তু Play purchase '
-                'সম্পন্ন করা যায়নি। Wallet আবার খুলুন।',
+                'সম্পন্ন হয়নি। Wallet আবার খুলুন।',
           );
         }
       }
@@ -342,8 +349,7 @@ class BillingService extends ChangeNotifier {
       lastError = error is StateError
           ? error.message.toString()
           : 'Purchase processing শেষ হয়নি। '
-          'আরেকবার কিনবেন না; Internet চালু রেখে '
-          'Wallet আবার খুলুন।';
+          'আরেকবার কিনবেন না; Wallet আবার খুলুন।';
 
       isPurchasePending = false;
       notifyListeners();

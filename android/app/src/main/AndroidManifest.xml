@@ -5,7 +5,7 @@
     <uses-permission android:name="com.android.vending.BILLING" />
 
     <application
-        android:label="learn_islam"
+        android:label="Learn Islam"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
 
